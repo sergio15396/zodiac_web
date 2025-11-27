@@ -1,11 +1,15 @@
 # Stage 1 — Composer dependencies
-FROM php:8.2-cli AS vendor
+ARG PHP_VERSION=8.2
+FROM php:${PHP_VERSION}-cli AS vendor
 WORKDIR /app
 COPY composer.json composer.lock ./
+
+ENV COMPOSER_ALLOW_SUPERUSER=1
 
 RUN apt-get update && apt-get install -y unzip git --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \
+    && composer config platform.php ${PHP_VERSION} \
     && composer install --no-dev --no-interaction --prefer-dist
 
 # Stage 2 — Build Laravel App
