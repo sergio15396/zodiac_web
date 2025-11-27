@@ -15,8 +15,7 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'   # Match Dockerfile version
-          extensions: mbstring, bcmath, pdo_sqlite, intl, zip, exif, pcntl
+          php-version: '8.4'
 
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist --no-progress
@@ -25,11 +24,9 @@ jobs:
         run: |
           cp .env.example .env
           php artisan key:generate
-          touch database/database.sqlite
-          php artisan migrate --force
 
       - name: Run Tests
-        run: php artisan test --no-coverage
+        run: php artisan test
 
   docker:
     name: Build and Push Docker Image
