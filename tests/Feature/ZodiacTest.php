@@ -30,7 +30,7 @@ class ZodiacTest extends TestCase
      */
     public function test_the_application_returns_a_successful_response_for_pisces_in_spanish(): void
     {
-        $response = $this->get('/es/zodiac/pisces');
+        $response = $this->get('/es/pisces');
         $response->assertStatus(200);
     }
 }
