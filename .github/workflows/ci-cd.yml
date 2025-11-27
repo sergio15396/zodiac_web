@@ -39,3 +39,5 @@ jobs:
         context: .
         push: true
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/your-laravel-app:latest
+        build-args: |
+          PHP_VERSION=8.2
