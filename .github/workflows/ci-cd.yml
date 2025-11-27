@@ -1,44 +1,58 @@
-name: Tests + Docker Deploy
+name: Test, Build, and Deploy Docker Image
 
 on:
   push:
     branches: ["main"]
 
 jobs:
-  test-build-push:
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up PHP
-      uses: shivammathur/setup-php@v2
-      with:
-        php-version: '8.2'
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
 
-    - name: Install dependencies
-      run: composer install --no-interaction
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
 
-    - name: Prepare environment
-      run: |
-        cp .env.example .env
-        php artisan key:generate
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
 
-    - name: Run Tests
-      run: php artisan test
+      - name: Run Tests
+        run: php artisan test
 
-    - name: Login to DockerHub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
+  docker:
+    name: Build and Push Docker Image
+    needs: test  # Only runs if the 'test' job passes
+    runs-on: ubuntu-latest
 
-    - name: Build and Push Docker Image
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/your-laravel-app:latest
-        build-args: |
-          PHP_VERSION=8.2
-        progress: plain
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/your-laravel-app:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/your-laravel-app:${{ github.sha }}
+          build-args: |
+            PHP_VERSION=8.2
+
