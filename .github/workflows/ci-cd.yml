@@ -1,4 +1,4 @@
-name: "CI/CD: Test, Build & Push Docker Image"
+name: CI/CD: Test, Build & Push Docker Image
 
 on:
   push:
@@ -6,38 +6,62 @@ on:
   pull_request:
 
 jobs:
-  docker:
-    name: Test, Build, and Push Docker Image
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout repository
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Set up QEMU for multi-platform builds
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, bcmath, pdo_sqlite
+          coverage: none
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          mkdir -p database
+          touch database/database.sqlite
+
+      - name: Run Tests
+        run: php artisan test --no-coverage
+
+  docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: test   # Only runs if tests pass
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
         with:
           platforms: all
 
-      # Step 3: Set up Docker Buildx
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      # Step 4: Log in to Docker Hub
-      - name: Login to DockerHub
-        uses: docker/login-action@v2
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Step 5: Build and push Docker image
-      - name: Build and Push Docker Image
-        uses: docker/build-push-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: ./Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
@@ -45,11 +69,3 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/laravel-app:${{ github.sha }}
           build-args: |
             PHP_VERSION=8.3
-
-      # Optional: Test Laravel inside the container
-      - name: Run Laravel Tests in Docker
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/var/www/html \
-            ${{ secrets.DOCKERHUB_USERNAME }}/laravel-app:latest \
-            php artisan test --no-coverage
