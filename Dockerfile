@@ -5,7 +5,7 @@ COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --prefer-dist
 
 # Stage 2 — Build Laravel App
-FROM php:8.1-fpm
+FROM php:8.2-fpm
 WORKDIR /var/www/html
 
 # Install system dependencies
