@@ -1,69 +1,72 @@
 # ------------------------------
-# Stage 1: Build PHP dependencies
+# Stage 1: Node (build assets)
 # ------------------------------
-FROM php:8.2-fpm AS builder
+FROM node:20-bullseye AS node_builder
+WORKDIR /app
 
-WORKDIR /var/www/html
+# Copy Node package files
+COPY package*.json ./
+RUN npm ci
 
-# Install system dependencies and PHP extensions
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libpng-dev \
-        libonig-dev \
-        libzip-dev \
-        zip \
-        unzip \
-        curl \
-        git \
-        && docker-php-ext-install pdo_mysql mbstring zip exif pcntl \
-        && docker-php-ext-enable pdo_mysql \
-        && rm -rf /var/lib/apt/lists/*
+# Copy application code
+COPY . .
 
-# Install Composer
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# Build assets
+RUN npm run build
 
-# Copy only composer files first to leverage Docker cache
-COPY composer.json composer.lock ./
+# ------------------------------
+# Stage 2: PHP dependencies (Composer)
+# ------------------------------
+FROM composer:2 AS composer_builder
+WORKDIR /app
 
-# Copy artisan and essential files needed for post-autoload scripts
-COPY artisan ./
-COPY app ./app
-COPY bootstrap ./bootstrap
-COPY config ./config
-COPY database ./database
-COPY routes ./routes
-COPY resources ./resources
+# Copy app + built assets from node stage
+COPY --from=node_builder /app /app
 
 # Install PHP dependencies
-RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+RUN composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
 
 # ------------------------------
-# Stage 2: Final runtime image
+# Stage 3: Final production image
 # ------------------------------
-FROM php:8.2-fpm
+FROM php:8.2-fpm-bullseye
 
+# Install system dependencies + PHP extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpng-dev \
+    libonig-dev \
+    libzip-dev \
+    unzip \
+    git \
+    curl \
+    bash \
+    sqlite3 \
+    && docker-php-ext-install -j"$(nproc)" pdo_mysql pdo_sqlite mbstring bcmath intl zip exif pcntl \
+    && docker-php-ext-enable opcache \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
 WORKDIR /var/www/html
 
-# Install system dependencies (minimal)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libpng-dev \
-        libzip-dev \
-        zip \
-        unzip \
-        && docker-php-ext-install pdo_mysql mbstring zip exif pcntl \
-        && docker-php-ext-enable pdo_mysql \
-        && rm -rf /var/lib/apt/lists/*
+# Copy Laravel app + assets from composer stage
+COPY --from=composer_builder /app /var/www/html
 
-# Copy Composer from builder
-COPY --from=builder /usr/local/bin/composer /usr/local/bin/composer
-
-# Copy Laravel app
-COPY --from=builder /var/www/html /var/www/html
-
-# Cache config, routes, and views for faster performance
-RUN php artisan config:cache \
+# Prepare Laravel environment & cache
+RUN if [ ! -f .env ]; then cp .env.example .env; fi \
+    && php artisan key:generate \
+    && php artisan config:cache \
     && php artisan route:cache \
-    && php artisan view:cache
+    && php artisan view:cache \
+    && php artisan migrate --force
 
-# Expose port 9000 and start PHP-FPM
+# Set permissions for Laravel storage and bootstrap/cache
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 775 /var/www/html/storage \
+    && chmod -R 775 /var/www/html/bootstrap/cache
+
+# Run as non-root
+USER www-data
+
+# Expose PHP-FPM port
 EXPOSE 9000
-CMD ["php-fpm"]
