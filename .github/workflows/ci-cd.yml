@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/your-app-name
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/zodiac_web
 
 jobs:
   tests:
@@ -68,5 +68,5 @@ jobs:
         context: .
         push: true
         tags: |
-          ${{ secrets.DOCKERHUB_USERNAME }}/your-app-name:latest
-          ${{ secrets.DOCKERHUB_USERNAME }}/your-app-name:${{ github.sha }}
+          ${{ secrets.DOCKERHUB_USERNAME }}/zodiac_web:latest
+          ${{ secrets.DOCKERHUB_USERNAME }}/zodiac_web:${{ github.sha }}
