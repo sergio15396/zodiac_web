@@ -41,3 +41,4 @@ jobs:
         tags: ${{ secrets.DOCKERHUB_USERNAME }}/your-laravel-app:latest
         build-args: |
           PHP_VERSION=8.2
+        progress: plain
