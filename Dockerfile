@@ -47,8 +47,7 @@ RUN set -eux; \
         sqlite3 \
         libicu-dev \
         zlib1g-dev \
-        libxml2-dev \
-        libonig-dev; \
+        libxml2-dev; \
     docker-php-ext-configure intl; \
     docker-php-ext-install -j"$(nproc)" \
         pdo_mysql \
@@ -68,9 +67,16 @@ WORKDIR /var/www/html
 # Copy app + dependencies from composer stage
 COPY --from=composer_builder /app /var/www/html
 
-# Prepare Laravel (env, key, cache)
+# Prepare Laravel environment
 RUN if [ ! -f .env ]; then cp .env.example .env; fi \
-    && php artisan key:generate \
+    && php artisan key:generate
+
+# Create SQLite database file
+RUN touch database/database.sqlite \
+    && chmod 664 database/database.sqlite
+
+# Run migrations and cache configs
+RUN php artisan migrate --force \
     && php artisan config:cache \
     && php artisan route:cache \
     && php artisan view:cache
