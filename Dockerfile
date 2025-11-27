@@ -1,59 +1,57 @@
 # ------------------------------
-# Stage 1: Build PHP dependencies
+# Stage 1: Build Stage (PHP + Node)
 # ------------------------------
 FROM php:8.2-fpm AS builder
 
 WORKDIR /var/www/html
 
-# Install system dependencies
+# Install system dependencies for PHP + Node.js
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    unzip \
-    curl \
     libpng-dev \
     libonig-dev \
     libzip-dev \
     zip \
+    unzip \
+    curl \
+    git \
+    nodejs \
+    npm \
+    && docker-php-ext-install pdo_mysql mbstring zip exif pcntl \
+    && docker-php-ext-enable pdo_mysql \
     && rm -rf /var/lib/apt/lists/*
-
-# Install PHP extensions
-RUN docker-php-ext-install pdo_mysql mbstring zip exif pcntl
-RUN docker-php-ext-enable pdo_mysql
 
 # Install Composer
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
-# Copy composer files first for caching
+# Copy only composer files first (cache layer)
 COPY composer.json composer.lock ./
 
-# Install PHP dependencies
-RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+# Install PHP dependencies without running artisan scripts (artisan not yet available)
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
 
-# ------------------------------
-# Stage 2: Build Node.js/Vite assets
-# ------------------------------
-FROM node:20 AS node-builder
-
-WORKDIR /var/www/html
-
-# Copy app code and vendor
-COPY --from=builder /var/www/html /var/www/html
-
-# Install Node dependencies
+# Copy Node.js files for front-end caching
 COPY package.json package-lock.json ./
-RUN npm ci
 
-# Build frontend assets
+# Install Node.js dependencies
+RUN npm install
+
+# Copy full application source code
+COPY . .
+
+# Build front-end assets
 RUN npm run build
 
+# Run composer scripts now that full source is available
+RUN composer run-script post-install-cmd || echo "Skipping artisan scripts in build stage"
+
 # ------------------------------
-# Stage 3: Final PHP image
+# Stage 2: Production Stage (Lightweight)
 # ------------------------------
 FROM php:8.2-fpm
 
 WORKDIR /var/www/html
 
-# Install PHP extensions
+# Install only PHP runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     libonig-dev \
@@ -64,19 +62,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && docker-php-ext-enable pdo_mysql \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy PHP dependencies and composer
-COPY --from=builder /usr/local/bin/composer /usr/local/bin/composer
+# Copy PHP vendor files and compiled front-end assets from builder
 COPY --from=builder /var/www/html/vendor ./vendor
+COPY --from=builder /var/www/html/public ./public
 
-# Copy built frontend assets
-COPY --from=node-builder /var/www/html/public ./public
+# Copy essential Laravel directories
+COPY --from=builder /var/www/html/app ./app
+COPY --from=builder /var/www/html/config ./config
+COPY --from=builder /var/www/html/database ./database
+COPY --from=builder /var/www/html/resources ./resources
+COPY --from=builder /var/www/html/routes ./routes
 
-# Copy the rest of the application
-COPY . .
+# Copy composer binary
+COPY --from=builder /usr/local/bin/composer /usr/local/bin/composer
 
-# Set permissions for Laravel
-RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 755 /var/www/html/storage /var/www/html/bootstrap/cache
+# Cache config, routes, and views for faster performance
+RUN php artisan config:cache \
+    && php artisan route:cache \
+    && php artisan view:cache
 
 # Expose PHP-FPM port
 EXPOSE 9000
