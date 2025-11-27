@@ -1,83 +1,81 @@
-# --- STAGE 1: Node (Build Frontend Assets) ---
+# --- STAGE 1: Node (Assets) ---
 FROM node:20-alpine AS node_builder
-
-# Set working directory
 WORKDIR /app
 
-# Copy package files and install dependencies
+# Copy package.json & package-lock.json
 COPY package*.json ./
+
+# Install Node dependencies
 RUN npm ci
 
-# Copy the rest of the frontend code
+# Copy rest of the app
 COPY . .
 
-# Build assets for production
+# Build assets
 RUN npm run build
 
 # --- STAGE 2: PHP Dependencies (Composer) ---
 FROM composer:2 AS composer_builder
-
 WORKDIR /app
 
-# Copy all files from Node build stage (assets included)
+# Copy app + built assets from Node stage
 COPY --from=node_builder /app /app
 
-# Install PHP dependencies for production
+# Install PHP dependencies (production)
 RUN composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
 
-# --- STAGE 3: Final PHP + Node Image ---
-FROM php:8.2-fpm
+# --- STAGE 3: Final Image ---
+FROM php:8.4-fpm
 
-# Set working directory
-WORKDIR /var/www/html
-
-# Install system dependencies and PHP extensions (SQLite + Laravel essentials)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        git \
-        unzip \
+# Install system dependencies & PHP extensions
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
         libpng-dev \
         libonig-dev \
         libzip-dev \
-        libicu-dev \
-        zlib1g-dev \
-        libxml2-dev \
-        sqlite3 \
+        unzip \
+        git \
         curl \
         bash \
-    && docker-php-ext-configure intl \
-    && docker-php-ext-install -j"$(nproc)" \
+        sqlite3 \
+        libicu-dev \
+        zlib1g-dev \
+        libxml2-dev; \
+    docker-php-ext-configure intl; \
+    docker-php-ext-install -j"$(nproc)" \
+        pdo_mysql \
         pdo_sqlite \
         mbstring \
         bcmath \
         intl \
         zip \
         exif \
-        pcntl \
-    && docker-php-ext-enable opcache \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+        pcntl; \
+    docker-php-ext-enable opcache; \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Node for running dev scripts (Vite)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install -g npm@latest
+WORKDIR /var/www/html
 
-# Copy application code and built assets from Composer stage
+# Copy app + dependencies from composer stage
 COPY --from=composer_builder /app /var/www/html
 
-# Ensure SQLite database exists
-RUN if [ ! -f database/database.sqlite ]; then mkdir -p database && touch database/database.sqlite; fi
+# Prepare Laravel
+RUN if [ ! -f .env ]; then cp .env.example .env; fi \
+    && php artisan key:generate \
+    && php artisan config:cache \
+    && php artisan route:cache \
+    && php artisan view:cache \
+    && touch database/database.sqlite \
+    && php artisan migrate --force
 
-# Set proper permissions for Laravel
+# Permissions for Laravel
 RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 775 /var/www/html/storage \
     && chmod -R 775 /var/www/html/bootstrap/cache
 
-# Copy .env if not present and generate key
-RUN if [ ! -f .env ]; then cp .env.example .env; fi \
-    && php artisan key:generate
+# Run as www-data
+USER www-data
 
-# Expose PHP-FPM port
+# Expose PHP-FPM
 EXPOSE 9000
-
-# Run PHP-FPM
-CMD ["php-fpm"]
