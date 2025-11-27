@@ -16,17 +16,9 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: mbstring, bcmath, pdo_sqlite, intl
-          coverage: none
-
-      - name: Cache Composer
-        uses: actions/cache@v4
-        with:
-          path: vendor
-          key: ${{ runner.os }}-php-${{ hashFiles('**/composer.lock') }}
 
       - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress --optimize-autoloader
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Prepare environment
         run: |
@@ -36,7 +28,7 @@ jobs:
           php artisan migrate --force
 
       - name: Run Tests
-        run: php artisan test --no-coverage
+        run: php artisan test
 
   docker:
     name: Build and Push Docker Image
@@ -45,11 +37,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-        with:
-          platforms: all
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -64,8 +51,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
           push: true
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/your-laravel-app:latest
